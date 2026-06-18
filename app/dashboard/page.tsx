@@ -188,12 +188,21 @@ export default function Dashboard() {
       {/* Header Panel */}
       <header className="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
         <div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Dynamic Attendance Registry</h1>
-          <p className="text-slate-500 text-sm">Target threshold constraints: 75% running index</p>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Daily Student Attendance Portal</h1>
+          <p className="text-slate-500 text-sm">Centralized Schedule Mode (Criteria Index: 75%)</p>
         </div>
-        <button onClick={() => router.push("/dashboard/grades")} className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2 rounded-xl text-sm font-semibold transition">
-          View Grades Ledger →
-        </button>
+        
+        {/* Dynamic Admin Utility Button Check */}
+        <div className="flex gap-2">
+          {user?.email === "your-admin-email@example.com" && (
+            <button 
+              onClick={() => router.push("/admin")} 
+              className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm"
+            >
+              ⚙️ Admin Control Panel
+            </button>
+          )}
+        </div>
       </header>
 
       {/* HORIZONTAL CALENDAR STRIP COMPONENT */}
