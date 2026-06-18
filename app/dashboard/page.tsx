@@ -26,6 +26,7 @@ interface AttendanceLog {
 
 export default function Dashboard() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -39,72 +40,91 @@ export default function Dashboard() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [newSubjectName, setNewSubjectName] = useState("");
   const [scheduleSubjectId, setScheduleSubjectId] = useState("");
-  const [scheduleDay, setScheduleDay] = useState(1); // Default Monday
-  const [scheduleSlot, setScheduleSlot] = useState(1); // Default Slot 1
+  const [scheduleDay, setScheduleDay] = useState(1); 
+  const [scheduleSlot, setScheduleSlot] = useState(1); 
 
   const daysOfWeekNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+  // Guard against Next.js Framework Hydration Desynchronization Bugs
   useEffect(() => {
+    setMounted(true);
     checkUser();
   }, []);
 
   useEffect(() => {
-    if (user) {
+    if (mounted && user) {
       fetchAllData(user.id);
     }
-  }, [user, selectedDate]);
+  }, [user, selectedDate, mounted]);
 
   const checkUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) router.push("/login");
-    else setUser(user);
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) {
+        router.push("/login");
+      } else {
+        setUser(user);
+      }
+    } catch (err) {
+      console.error("Auth initialization failure:", err);
+      router.push("/login");
+    }
   };
 
   const fetchAllData = async (userId: string) => {
     setLoading(true);
+    try {
+      // 1. Fetch Subjects
+      const { data: subData } = await supabase.from("subjects").select("*").eq("user_id", userId);
+      const parsedSubjects = subData || [];
+      setSubjects(parsedSubjects);
+      if (parsedSubjects.length > 0 && !scheduleSubjectId) setScheduleSubjectId(parsedSubjects[0].id);
 
-    // 1. Fetch Subjects
-    const { data: subData } = await supabase.from("subjects").select("*").eq("user_id", userId);
-    const parsedSubjects = subData || [];
-    setSubjects(parsedSubjects);
-    if (parsedSubjects.length > 0 && !scheduleSubjectId) setScheduleSubjectId(parsedSubjects[0].id);
+      // 2. Fetch Weekly Timetable Configuration
+      const { data: timeData } = await supabase
+        .from("timetable")
+        .select("*")
+        .eq("user_id", userId)
+        .order("slot_number", { ascending: true });
+      setTimetable(timeData || []);
 
-    // 2. Fetch Weekly Timetable Configuration (ordering sequentially by slot numbers)
-    const { data: timeData } = await supabase
-      .from("timetable")
-      .select("*")
-      .eq("user_id", userId)
-      .order("slot_number", { ascending: true });
-    setTimetable(timeData || []);
+      // 3. Fetch attendance logs entered for the focused calendar date
+      const targetISODate = selectedDate.toISOString().split("T")[0];
+      const { data: dailyLogs } = await supabase
+        .from("attendance")
+        .select("id, subject_id, status, slot_number")
+        .eq("user_id", userId)
+        .eq("date", targetISODate);
+      setAttendanceLogs((dailyLogs as AttendanceLog[]) || []);
 
-    // 3. Fetch attendance logs entered for the focused calendar date
-    const targetISODate = selectedDate.toISOString().split("T")[0];
-    const { data: dailyLogs } = await supabase
-      .from("attendance")
-      .select("id, subject_id, status, slot_number")
-      .eq("user_id", userId)
-      .eq("date", targetISODate);
-    setAttendanceLogs((dailyLogs as AttendanceLog[]) || []);
+      // 4. Fetch ALL historic logs to maintain running percentage calculations
+      const { data: allLogs } = await supabase.from("attendance").select("subject_id, status").eq("user_id", userId);
+      
+      const statsMap: Record<string, { present: number; absent: number; percentage: number }> = {};
+      parsedSubjects.forEach(s => statsMap[s.id] = { present: 0, absent: 0, percentage: 100 });
 
-    // 4. Fetch ALL historic logs to maintain running percentage calculations
-    const { data: allLogs } = await supabase.from("attendance").select("subject_id, status").eq("user_id", userId);
-    
-    const statsMap: Record<string, { present: number; absent: number; percentage: number }> = {};
-    parsedSubjects.forEach(s => statsMap[s.id] = { present: 0, absent: 0, percentage: 100 });
+      allLogs?.forEach(log => {
+        if (!statsMap[log.subject_id]) return;
+        if (log.status === "Present") statsMap[log.subject_id].present += 1;
+        if (log.status === "Absent") statsMap[log.subject_id].absent += 1;
+      });
 
-    allLogs?.forEach(log => {
-      if (!statsMap[log.subject_id]) return;
-      if (log.status === "Present") statsMap[log.subject_id].present += 1;
-      if (log.status === "Absent") statsMap[log.subject_id].absent += 1;
-    });
+      Object.keys(statsMap).forEach(id => {
+        const total = statsMap[id].present + statsMap[id].absent;
+        statsMap[id].percentage = total === 0 ? 100 : parseFloat(((statsMap[id].present / total) * 100).toFixed(1));
+      });
+      setGlobalStats(statsMap);
+    } catch (err) {
+      console.error("Data tracking compilation error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    Object.keys(statsMap).forEach(id => {
-      const total = statsMap[id].present + statsMap[id].absent;
-      statsMap[id].percentage = total === 0 ? 100 : parseFloat(((statsMap[id].present / total) * 100).toFixed(1));
-    });
-    setGlobalStats(statsMap);
-
-    setLoading(false);
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) alert("Error logging out: " + error.message);
+    else router.push("/login");
   };
 
   const handleAddSubject = async (e: React.FormEvent) => {
@@ -134,8 +154,6 @@ export default function Dashboard() {
   const toggleAttendance = async (subjectId: string, slotNumber: number, targetStatus: "Present" | "Absent") => {
     if (!user) return;
     const targetISODate = selectedDate.toISOString().split("T")[0];
-    
-    // Find matching record by subject AND specific class slot number
     const existingLog = attendanceLogs.find(l => l.subject_id === subjectId && l.slot_number === slotNumber);
 
     if (existingLog) {
@@ -158,7 +176,6 @@ export default function Dashboard() {
     fetchAllData(user.id);
   };
 
-  // Generate 5-day array centered dynamically around Selected Date's Wednesday
   const getCalendarDays = () => {
     const days = [];
     const baseDate = new Date(selectedDate);
@@ -175,7 +192,8 @@ export default function Dashboard() {
     return days;
   };
 
-  // Filter timetable configurations for the active selected day
+  if (!mounted) return null;
+
   const activeDayOfWeek = selectedDate.getDay();
   const scheduledSlotsForDay = timetable.filter(t => t.day_of_week === activeDayOfWeek);
 
@@ -185,27 +203,31 @@ export default function Dashboard() {
 
   return (
     <main className="p-6 max-w-4xl mx-auto space-y-8">
-      {/* Header Panel */}
       <header className="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
         <div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tight">Daily Student Attendance Portal</h1>
           <p className="text-slate-500 text-sm">Centralized Schedule Mode (Criteria Index: 75%)</p>
         </div>
         
-        {/* Dynamic Admin Utility Button Check */}
-        <div className="flex gap-2">
-          {user?.email === "your-admin-email@example.com" && (
-            <button 
-              onClick={() => router.push("/admin")} 
-              className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm"
-            >
-              ⚙️ Admin Control Panel
-            </button>
-          )}
-        </div>
+      {/* Dynamic Action Controls */}
+      <div className="flex gap-3">
+        {user?.email?.trim().toLowerCase() === "raeedanees@gmail.com" && (
+          <button 
+            onClick={() => router.push("/admin")} 
+            className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold transition shadow-sm"
+          >
+            ⚙️ Admin Panel
+          </button>
+        )}
+        <button 
+          onClick={handleSignOut}
+          className="border border-rose-200 text-rose-600 hover:bg-rose-50 px-4 py-2 rounded-xl text-sm font-bold transition"
+        >
+          Sign Out
+        </button>
+      </div>
       </header>
 
-      {/* HORIZONTAL CALENDAR STRIP COMPONENT */}
       <section className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-center gap-3 border-b border-slate-100 pb-4">
           <div className="text-left">
@@ -218,9 +240,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 w-full sm:w-auto justify-between">
             <label htmlFor="jump-date" className="text-xs font-bold text-slate-500 whitespace-nowrap">Jump to Any Date:</label>
             <input 
-              id="jump-date"
-              type="date"
-              value={selectedDate.toISOString().split("T")[0]}
+              id="jump-date" type="date" value={selectedDate.toISOString().split("T")[0]}
               onChange={(e) => { if (e.target.value) setSelectedDate(new Date(e.target.value)); }}
               className="bg-transparent text-xs font-bold text-indigo-600 focus:outline-none cursor-pointer"
             />
@@ -233,10 +253,9 @@ export default function Dashboard() {
             const isToday = date.toDateString() === new Date().toDateString();
             return (
               <button
-                key={idx}
-                onClick={() => setSelectedDate(date)}
+                key={idx} onClick={() => setSelectedDate(date)}
                 className={`flex flex-col items-center p-3 rounded-xl min-w-[70px] transition ${
-                  isSelected ? "bg-indigo-600 text-white shadow-md shadow-indigo-200" : "bg-slate-50 hover:bg-slate-100 text-slate-700"
+                  isSelected ? "bg-indigo-600 text-white shadow-md" : "bg-slate-50 hover:bg-slate-100 text-slate-700"
                 } ${isToday && !isSelected ? "border border-indigo-300" : ""}`}
               >
                 <span className="text-[10px] uppercase font-bold opacity-70">{daysOfWeekNames[date.getDay()].substring(0, 3)}</span>
@@ -247,7 +266,6 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* MAIN SCHEDULE CHECKLIST ENGINE WITH MULTI-SLOT CAPABILITIES */}
       <section className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
         <h2 className="text-lg font-bold text-slate-800 mb-1">Scheduled Classes Checklist</h2>
         <p className="text-xs text-slate-400 mb-6">Log attendance separately for each distinct time slot throughout the day.</p>
@@ -264,7 +282,6 @@ export default function Dashboard() {
             return (
               <div key={slot.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-slate-50/70 rounded-xl border border-slate-100 transition gap-4">
                 <div className="flex items-center gap-4">
-                  {/* Visual Slot Indicator Badge */}
                   <div className="bg-indigo-100 text-indigo-700 font-extrabold px-3 py-2 rounded-xl text-xs whitespace-nowrap">
                     Slot {slot.slot_number}
                   </div>
@@ -281,9 +298,7 @@ export default function Dashboard() {
                   <button
                     onClick={() => toggleAttendance(course.id, slot.slot_number, "Present")}
                     className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                      currentLog?.status === "Present" 
-                        ? "bg-emerald-600 text-white shadow-sm" 
-                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      currentLog?.status === "Present" ? "bg-emerald-600 text-white" : "bg-white border text-slate-600"
                     }`}
                   >
                     ✓ Present
@@ -291,9 +306,7 @@ export default function Dashboard() {
                   <button
                     onClick={() => toggleAttendance(course.id, slot.slot_number, "Absent")}
                     className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-                      currentLog?.status === "Absent" 
-                        ? "bg-rose-600 text-white shadow-sm" 
-                        : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      currentLog?.status === "Absent" ? "bg-rose-600 text-white" : "bg-white border text-slate-600"
                     }`}
                   >
                     ✗ Absent
@@ -311,24 +324,21 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* CONFIGURATION MANAGEMENT FORM CORES */}
       <section className="grid md:grid-cols-2 gap-6">
-        {/* Module 1: Add New Master Subject */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider text-slate-400 mb-4">1. Catalog New Subject</h3>
           <form onSubmit={handleAddSubject} className="space-y-3">
             <input
               type="text" required placeholder="e.g., Quantum Mechanics" value={newSubjectName}
               onChange={(e) => setNewSubjectName(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none"
+              className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 text-sm text-slate-800 focus:outline-none"
             />
-            <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold py-2.5 rounded-xl transition">
+            <button type="submit" className="w-full bg-slate-900 text-white text-sm font-semibold py-2.5 rounded-xl">
               Create Subject Reference
             </button>
           </form>
         </div>
 
-        {/* Module 2: Link Subject to Specific Slots */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider text-slate-400 mb-4">2. Map Weekly Schedule & Slots</h3>
           <form onSubmit={handleAssignSchedule} className="space-y-3">
@@ -336,10 +346,9 @@ export default function Dashboard() {
               <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Subject</label>
               <select
                 value={scheduleSubjectId} onChange={(e) => setScheduleSubjectId(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none"
+                className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 text-sm text-slate-800 focus:outline-none"
               >
                 {subjects.map(s => <option key={s.id} value={s.id}>{s.subject_name}</option>)}
-                {subjects.length === 0 && <option>Create a subject first...</option>}
               </select>
             </div>
             
@@ -348,26 +357,24 @@ export default function Dashboard() {
                 <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Day</label>
                 <select
                   value={scheduleDay} onChange={(e) => setScheduleDay(parseInt(e.target.value))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 text-sm text-slate-800 focus:outline-none"
                 >
-                  {daysOfWeekNames.map((name, index) => <option key={index} value={index}>{name}</option>)}
+                  {daysOfWeekNames.map((name, idx) => <option key={idx} value={idx}>{name}</option>)}
                 </select>
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Class Slot Number</label>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Slot Number</label>
                 <select
                   value={scheduleSlot} onChange={(e) => setScheduleSlot(parseInt(e.target.value))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 focus:outline-none text-center"
+                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 text-sm text-slate-800 focus:outline-none text-center"
                 >
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
-                    <option key={num} value={num}>Slot {num}</option>
-                  ))}
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map(num => <option key={num} value={num}>Slot {num}</option>)}
                 </select>
               </div>
             </div>
             
-            <button type="submit" disabled={subjects.length === 0} className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-sm font-semibold py-2.5 rounded-xl transition mt-2">
+            <button type="submit" disabled={subjects.length === 0} className="w-full bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl mt-2 disabled:bg-slate-300">
               Map to Timetable Slot
             </button>
           </form>
