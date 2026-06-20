@@ -4,17 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient";
 
-interface Subject {
-  id: string;
-  subject_name: string;
-}
-
-interface TimetableSlot {
-  id: string;
-  subject_id: string;
-  day_of_week: number;
-  slot_number: number;
-}
+interface Subject { id: string; subject_name: string; }
+interface TimetableSlot { id: string; subject_id: string; day_of_week: number; slot_number: number; }
 
 export default function AdminPanel() {
   const router = useRouter();
@@ -30,227 +21,273 @@ export default function AdminPanel() {
   const [selectedDay, setSelectedDay] = useState(1); 
   const [selectedSlot, setSelectedSlot] = useState(1); 
 
+  // Single-focus active dropdown tracker string parameter ('subject' | 'day' | 'slot' | null)
+  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
   const ADMIN_EMAIL = "raeedanees@gmail.com"; 
   const daysOfWeekNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-  useEffect(() => {
-    setMounted(true);
-    verifyAdminAuth();
-  }, []);
+  useEffect(() => { setMounted(true); verifyAdminAuth(); }, []);
 
   const verifyAdminAuth = async () => {
-    try {
-      setLoading(true);
-      const { data: { user }, error } = await supabase.auth.getUser();
-      
-      if (error || !user) {
-        router.push("/dashboard");
-        return;
-      }
-
-      if (user.email?.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()) {
-        setIsAdmin(true);
-        await fetchMasterData();
-      } else {
-        router.push("/dashboard");
-      }
-    } catch (err) {
-      console.error("Critical admin verification barrier failure:", err);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.email?.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()) {
+      setIsAdmin(true);
+      await fetchMasterData();
+    } else {
       router.push("/dashboard");
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   const fetchMasterData = async () => {
-    try {
-      const { data: subData } = await supabase.from("subjects").select("id, subject_name");
-      const formattedSubjects = subData || [];
-      setSubjects(formattedSubjects);
-      
-      if (formattedSubjects.length > 0 && !selectedSubjectId) {
-        setSelectedSubjectId(formattedSubjects[0].id);
-      }
+    const { data: subData } = await supabase.from("subjects").select("id, subject_name");
+    const formattedSubjects = subData || [];
+    setSubjects(formattedSubjects);
+    if (formattedSubjects.length > 0 && !selectedSubjectId) setSelectedSubjectId(formattedSubjects[0].id);
 
-      const { data: timeData } = await supabase
-        .from("timetable")
-        .select("*")
-        .order("day_of_week", { ascending: true })
-        .order("slot_number", { ascending: true });
-      setTimetable(timeData || []);
-    } catch (err) {
-      console.error("Database sync execution fault:", err);
-    }
-  };
-
-  const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) alert("Error logging out: " + error.message);
-    else router.push("/login");
+    const { data: timeData } = await supabase.from("timetable").select("*").order("day_of_week", { ascending: true }).order("slot_number", { ascending: true });
+    setTimetable(timeData || []);
   };
 
   const handleCreateSubject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSubjectName.trim()) return;
-
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    await supabase.from("subjects").insert([{ subject_name: newSubjectName.trim(), user_id: user?.id, credits: 3 }]);
+    setNewSubjectName("");
+    await fetchMasterData();
+  };
 
-    const { error } = await supabase.from("subjects").insert([
-      { subject_name: newSubjectName.trim(), user_id: user.id, credits: 3 }
-    ]);
-
-    if (error) alert(error.message);
-    else {
-      setNewSubjectName("");
-      await fetchMasterData();
-    }
+  const handleRemoveSubject = async (subjectId: string, name: string) => {
+    if (!confirm(`Permanently remove "${name}" and unbind all scheduled slots?`)) return;
+    await supabase.from("timetable").delete().eq("subject_id", subjectId);
+    await supabase.from("attendance").delete().eq("subject_id", subjectId);
+    await supabase.from("subjects").delete().eq("id", subjectId);
+    await fetchMasterData();
   };
 
   const handleMapSlot = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSubjectId) return;
-
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { error } = await supabase.from("timetable").insert([
-      { 
-        subject_id: selectedSubjectId, 
-        day_of_week: selectedDay, 
-        slot_number: selectedSlot,
-        user_id: user.id
-      }
-    ]);
-
-    if (error) {
-      alert("Conflict: This slot is already occupied on that specific day!");
-    } else {
-      await fetchMasterData();
-    }
+    const { error } = await supabase.from("timetable").insert([{ subject_id: selectedSubjectId, day_of_week: selectedDay, slot_number: selectedSlot, user_id: user?.id }]);
+    if (error) alert("Slot occupied!"); else await fetchMasterData();
   };
 
   const handleRemoveSlot = async (slotId: string) => {
-    if (!confirm("Are you sure you want to remove this class slot from the master timetable?")) return;
-    const { error } = await supabase.from("timetable").delete().eq("id", slotId);
-    if (!error) await fetchMasterData();
+    await supabase.from("timetable").delete().eq("id", slotId);
+    await fetchMasterData();
   };
 
-  if (!mounted) return null;
+  const toggleDropdown = (dropdownName: string) => {
+    if (activeDropdown === dropdownName) {
+      setActiveDropdown(null);
+    } else {
+      setActiveDropdown(dropdownName);
+    }
+  };
 
-  if (loading || !isAdmin) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
-        <p className="text-slate-400 font-semibold text-sm tracking-wide">Securing Admin Workstation Channel...</p>
-      </div>
-    );
-  }
+  if (!mounted || loading || !isAdmin) return null;
+
+  const activeSubjectName = subjects.find(s => s.id === selectedSubjectId)?.subject_name || "Select Subject Pointer";
 
   return (
-    <main className="p-6 max-w-5xl mx-auto space-y-8">
-      <header className="flex justify-between items-center bg-slate-950 border border-slate-800 text-white p-6 rounded-2xl shadow-xl">
+    <main className="py-12 max-w-[1000px] mx-auto space-y-8 min-h-screen selection:bg-rose-500/30">
+      
+      {/* Control Station Header */}
+      <header className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-white/10 pb-6 text-center md:text-left animate-reveal-up">
         <div>
-          <h1 className="text-xl font-black tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Central Master Schedule Control Room</h1>
-          <p className="text-indigo-400 text-xs font-mono mt-0.5">Admin Security Profile: {ADMIN_EMAIL}</p>
+          <h1 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-[#f9d423] to-[#ff4e50] bg-clip-text text-transparent drop-shadow-lg tracking-tight">
+            Master Control Center
+          </h1>
+          <p className="text-indigo-400 font-mono text-xs mt-1 tracking-widest uppercase animate-slide-right">
+            OPERATIONAL PIPELINE ENVIRONMENT · ID: {ADMIN_EMAIL}
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push("/dashboard")} className="bg-slate-800 text-slate-200 hover:bg-slate-700 px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700 transition">
-            ← Student Portal View
-          </button>
-          <button 
-            onClick={handleSignOut} 
-            className="bg-rose-950/40 text-rose-400 hover:bg-rose-900/40 border border-rose-900/50 px-4 py-2 rounded-xl text-xs font-semibold transition"
-          >
-            Sign Out
+          <button onClick={() => router.push("/dashboard")} className="cyber-btn-secondary bg-white/5 border border-white/10 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md">
+            ← Core Workspace View
           </button>
         </div>
       </header>
 
-      <section className="grid md:grid-cols-2 gap-6">
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl text-white">
-          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-4">1. Catalog New Global Subject</h3>
-          <form onSubmit={handleCreateSubject} className="space-y-3">
+      {/* Inputs Configuration Matrix */}
+      <section className="grid md:grid-cols-2 gap-6 animate-reveal-up [animation-delay:0.12s]">
+        
+        {/* Form Panel 1: Subject Entry */}
+        <div className="glass-panel p-6 rounded-3xl space-y-4 shadow-2xl transition-all duration-300">
+          <h3 className="font-bold text-xs uppercase tracking-widest text-white/40">01. Catalog Global Parameter</h3>
+          <form onSubmit={handleCreateSubject} className="space-y-4">
             <input
-              type="text" required placeholder="e.g., Data Structures & Algos" value={newSubjectName}
+              type="text" required placeholder="e.g., Quantum Algorithm Systems" value={newSubjectName}
               onChange={(e) => setNewSubjectName(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-sm focus:outline-none focus:border-indigo-500 transition"
+              className="w-full px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm focus:outline-none focus:border-[#f9d423] transition-all placeholder:text-white/20 text-white font-medium"
             />
-            <button type="submit" className="w-full bg-white text-slate-950 text-sm font-bold py-2.5 rounded-xl">
-              Add Subject to Core Database
+            <button type="submit" className="w-full cyber-btn-primary text-black text-sm font-black py-3 rounded-xl shadow-md uppercase tracking-wider">
+              Write Registry Line
             </button>
           </form>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl text-white">
-          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-4">2. Map Master Timetable Slot</h3>
+        {/* Form Panel 2: Interactive Custom Dropdown Timetable Mapper */}
+        <div className="glass-panel p-6 rounded-3xl space-y-4 shadow-2xl transition-all duration-300">
+          <h3 className="font-bold text-xs uppercase tracking-widest text-white/40">02. Initialize Layout Mappings</h3>
           <form onSubmit={handleMapSlot} className="space-y-4">
-            <div>
-              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Select Subject</label>
-              <select
-                value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-sm focus:outline-none focus:border-indigo-500 transition"
-              >
-                {subjects.map(s => <option key={s.id} value={s.id}>{s.subject_name}</option>)}
-              </select>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Target Day</label>
-                <select
-                  value={selectedDay} onChange={(e) => setSelectedDay(parseInt(e.target.value))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-sm focus:outline-none"
-                >
-                  {daysOfWeekNames.map((name, idx) => <option key={idx} value={idx}>{name}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Slot Assignment</label>
-                <select
-                  value={selectedSlot} onChange={(e) => setSelectedSlot(parseInt(e.target.value))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-sm focus:outline-none text-center"
-                >
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map(num => <option key={num} value={num}>Slot {num}</option>)}
-                </select>
-              </div>
-            </div>
-            
-            <button type="submit" disabled={subjects.length === 0} className="w-full bg-indigo-600 text-white text-sm font-semibold py-2.5 rounded-xl disabled:bg-slate-800 disabled:text-slate-600">
-              Publish to Master Schedule
+          
+          {/* Custom Dropdown 1: Subject Selector */}
+          <div className="relative">
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Target Subject</label>
+            <button
+              type="button"
+              onClick={() => toggleDropdown('subject')}
+              className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99"
+            >
+              <span className="truncate max-w-[90%]">{activeSubjectName}</span>
+              <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'subject' ? 'rotate-180' : ''}`}>▼</span>
             </button>
-          </form>
+
+            <div 
+              className={`dropdown-transition-container absolute w-full mt-2 max-h-[200px] overflow-y-auto rounded-xl border border-white/10 bg-slate-950/95 backdrop-blur-[30px] shadow-2xl z-50 p-1.5 space-y-0.5 ${
+                activeDropdown === 'subject' ? 'is-open block' : 'hidden'
+              }`}
+            >
+              {subjects.map(s => (
+                <button
+                  key={s.id} type="button"
+                  onClick={() => { setSelectedSubjectId(s.id); setActiveDropdown(null); }}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+                    selectedSubjectId === s.id ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  {s.subject_name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Sub-grid containing Day and Slot Custom Drawers */}
+          <div className="grid grid-cols-2 gap-4">
+            
+            {/* Custom Dropdown 2: Weekday Selector */}
+            <div className="relative">
+              <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Weekly Weekday</label>
+              <button
+                type="button"
+                onClick={() => toggleDropdown('day')}
+                className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99"
+              >
+                <span>{daysOfWeekNames[selectedDay]}</span>
+                <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'day' ? 'rotate-180' : ''}`}>▼</span>
+              </button>
+
+              <div 
+                className={`dropdown-transition-container absolute w-full mt-2 rounded-xl border border-white/10 bg-slate-950/90 backdrop-blur-[30px] shadow-2xl z-50 p-1.5 space-y-0.5 ${
+                  activeDropdown === 'day' ? 'is-open block' : 'hidden'
+                }`}
+              >
+                {daysOfWeekNames.map((name, idx) => (
+                  <button
+                    key={idx} type="button"
+                    onClick={() => { setSelectedDay(idx); setActiveDropdown(null); }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      selectedDay === idx ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Dropdown 3: Slot Selector */}
+            <div className="relative">
+              <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Slot Number</label>
+              <button
+                type="button"
+                onClick={() => toggleDropdown('slot')}
+                className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99 justify-center gap-2"
+              >
+                <span>Slot 0{selectedSlot}</span>
+                <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'slot' ? 'rotate-180' : ''}`}>▼</span>
+              </button>
+
+              <div 
+                className={`dropdown-transition-container absolute w-full mt-2 max-h-[180px] overflow-y-auto rounded-xl border border-white/10 bg-slate-950/90 backdrop-blur-[30px] shadow-2xl z-50 p-1.5 space-y-0.5 ${
+                  activeDropdown === 'slot' ? 'is-open block' : 'hidden'
+                }`}
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
+                  <button
+                    key={n} type="button"
+                    onClick={() => { setSelectedSlot(n); setActiveDropdown(null); }}
+                    className={`w-full text-center px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      selectedSlot === n ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    Slot 0{n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+          </div>
+          
+          <button type="submit" disabled={subjects.length === 0} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-3 rounded-xl transition-all duration-300 shadow-lg shadow-indigo-950/40 transform active:scale-98 uppercase tracking-wider disabled:opacity-20">
+            Bind Schedule Link Vector
+          </button>
+        </form>
         </div>
       </section>
 
-      <section className="bg-slate-900 border border-slate-800 p-6 rounded-2xl text-white">
-        <h2 className="text-lg font-bold mb-1">Active Global Timetable Registry</h2>
-        <p className="text-xs text-slate-400 mb-6">This displays every class currently deployed across your user ecosystem.</p>
+      {/* Dynamic Grid Subject Manager */}
+      <section className="glass-panel p-6 rounded-3xl shadow-2xl space-y-4 animate-reveal-up [animation-delay:0.2s]">
+        <h2 className="text-xl font-black text-white tracking-wide">Stored Catalog Indices</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {subjects.map((s, idx) => (
+            <div 
+              key={s.id} 
+              className="group flex justify-between items-center p-4 bg-black/20 border border-white/5 rounded-2xl hover:border-white/15 transition-all duration-300 animate-reveal-up"
+              style={{ animationDelay: `${0.25 + idx * 0.05}s` }}
+            >
+              <span className="text-sm font-semibold truncate text-white/80 group-hover:text-[#f9d423] transition-colors duration-300">{s.subject_name}</span>
+              <button onClick={() => handleRemoveSubject(s.id, s.subject_name)} className="text-[10px] text-rose-400 bg-rose-950/20 px-3 py-1.5 rounded-xl font-bold border border-rose-900/30 hover:bg-rose-600 hover:text-white transition-all duration-300 uppercase tracking-wider">
+                Purge
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-300 border-collapse">
+      {/* Master Interactive Relational Matrix Table */}
+      <section className="glass-panel p-6 rounded-3xl shadow-2xl space-y-4 animate-reveal-up [animation-delay:0.35s]">
+        <h2 className="text-xl font-black text-white tracking-wide">Live Active System Schedule Matrix</h2>
+        <div className="overflow-x-auto rounded-xl border border-white/5">
+          <table className="w-full text-left text-sm text-white/70 border-collapse">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                <th className="py-3 px-4">Day</th>
-                <th className="py-3 px-4">Time Slot</th>
-                <th className="py-3 px-4">Subject Name</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+              <tr className="bg-black/40 border-b border-white/10 text-white/40 text-[10px] font-bold uppercase tracking-widest">
+                <th className="py-4 px-5">Timeline Phase</th>
+                <th className="py-4 px-5">Index Slot</th>
+                <th className="py-4 px-5">Linked Core Subject</th>
+                <th className="py-4 px-5 text-right">Operation Execution</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/50 font-medium">
-              {timetable.map(slot => {
+            <tbody className="divide-y divide-white/5 bg-black/10">
+              {timetable.map((slot, idx) => {
                 const matchedCourse = subjects.find(s => s.id === slot.subject_id);
                 return (
-                  <tr key={slot.id} className="hover:bg-slate-800/30 transition">
-                    <td className="py-3.5 px-4 text-white font-bold">{daysOfWeekNames[slot.day_of_week]}</td>
-                    <td className="py-3.5 px-4">
-                      <span className="bg-indigo-950/50 border border-indigo-500/30 text-indigo-400 text-xs font-black px-2.5 py-1 rounded-md">Slot {slot.slot_number}</span>
+                  <tr 
+                    key={slot.id} 
+                    className="hover:bg-white/5 transition-all duration-300 group animate-reveal-up"
+                    style={{ animationDelay: `${0.4 + idx * 0.03}s` }}
+                  >
+                    <td className="py-4 px-5 text-white font-bold transition-colors duration-300 group-hover:text-[#f9d423]">{daysOfWeekNames[slot.day_of_week]}</td>
+                    <td className="py-4 px-5">
+                      <span className="bg-white/5 border border-white/10 text-[#f9d423] text-xs font-mono font-black px-2.5 py-1 rounded-md tracking-wider">SLOT 0{slot.slot_number}</span>
                     </td>
-                    <td className="py-3.5 px-4 text-slate-300">{matchedCourse ? matchedCourse.subject_name : "Unknown Reference"}</td>
-                    <td className="py-3.5 px-4 text-right">
-                      <button onClick={() => handleRemoveSlot(slot.id)} className="text-rose-400 hover:text-rose-300 text-xs font-bold transition">
-                        Delete Slot
+                    <td className="py-4 px-5 text-white/80">{matchedCourse ? matchedCourse.subject_name : <span className="text-rose-400 font-mono text-xs uppercase tracking-wider animate-pulse">Unresolved Link Pointer</span>}</td>
+                    <td className="py-4 px-5 text-right">
+                      <button onClick={() => handleRemoveSlot(slot.id)} className="text-rose-400 hover:text-white bg-rose-950/0 hover:bg-rose-600 px-3 py-1.5 rounded-xl text-xs font-bold uppercase border border-transparent hover:border-rose-500/30 transition-all duration-300 tracking-wider">
+                        Unbind
                       </button>
                     </td>
                   </tr>

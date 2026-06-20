@@ -119,32 +119,43 @@ export default function LoginPage() {
 
   if (!mounted) return null;
 
+  // Replace your page's return statement with this optimized markup:
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4 text-white">
-      <div className="w-full max-w-md space-y-4 rounded-xl bg-slate-900 p-8 shadow-2xl">
-        <h2 className="text-2xl font-bold text-center">Student Attendance Vault</h2>
+    <div className="flex min-h-[80vh] items-center justify-center p-4">
+      {/* Main Glass Panel Card */}
+      <div className="glass-panel w-full max-w-md space-y-6 rounded-[25px] p-8 md:p-10 transition-all duration-500 hover:border-[#f9d423]/40 hover:shadow-[0_8px_32px_rgba(0,0,0,0.4),0_0_40px_rgba(249,212,35,0.1)]">
+        
+        {/* Brand Header */}
+        <div>
+          <h2 className="text-2xl md:text-3xl font-black text-center bg-gradient-to-r from-[#f9d423] to-[#ff4e50] bg-clip-text text-transparent drop-shadow-sm tracking-tight">
+            Attendance Vault
+          </h2>
+          <p className="text-center text-xs text-white/40 mt-1 font-medium tracking-wide">
+            Secure Academic Authentication Matrix
+          </p>
+        </div>
 
         {!showOtpScreen ? (
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium mb-1">Email Address</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-white/60 mb-1.5">Email Address</label>
               <input 
                 type="email" 
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-white focus:outline-none focus:border-indigo-500" 
+                className="w-full rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300 text-sm" 
                 placeholder="student@college.edu"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Password</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-white/60 mb-1.5">Password</label>
               <input 
                 type="password" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)} 
-                className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-white focus:outline-none focus:border-indigo-500" 
+                className="w-full rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300 text-sm" 
                 placeholder="••••••••"
                 required
               />
@@ -153,43 +164,43 @@ export default function LoginPage() {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full rounded-md bg-indigo-600 py-2 font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50"
+              className="w-full rounded-xl bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black font-bold py-3 text-sm hover:opacity-90 active:scale-[0.98] transition transform shadow-lg shadow-rose-500/10 disabled:opacity-50"
             >
-              {loading ? "Processing..." : "Sign In"}
+              {loading ? "Authorizing Security..." : "Sign In"}
             </button>
 
             <div className="relative flex py-2 items-center">
-              <div className="flex-grow border-t border-slate-700"></div>
-              <span className="flex-shrink mx-4 text-slate-500 text-sm">or</span>
-              <div className="flex-grow border-t border-slate-700"></div>
+              <div className="flex-grow border-t border-white/5"></div>
+              <span className="flex-shrink mx-4 text-white/20 text-xs font-bold uppercase tracking-widest">or</span>
+              <div className="flex-grow border-t border-white/5"></div>
             </div>
 
             <button 
               type="button" 
               onClick={handleSignUp}
               disabled={loading}
-              className="w-full rounded-md bg-slate-800 border border-slate-700 py-2 font-semibold hover:bg-slate-700 transition-colors disabled:opacity-50"
+              className="w-full rounded-xl bg-white/5 border border-white/10 py-3 text-sm font-bold text-white hover:bg-white/10 hover:border-white/20 active:scale-[0.98] transition transform disabled:opacity-50"
             >
-              Create an Account
+              Create Matrix Account
             </button>
           </form>
         ) : (
-          <form onSubmit={handleVerifyOtp} className="space-y-4">
-            <div className="p-4 bg-indigo-950/40 border border-indigo-900/50 rounded-xl text-center">
-              <p className="text-sm font-medium text-indigo-300">
-                Go check your email inbox for an OTP validation token code and enter it below to authorize this session.
+          <form onSubmit={handleVerifyOtp} className="space-y-5">
+            <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl text-center">
+              <p className="text-xs font-medium text-amber-300/90 leading-relaxed">
+                Security key dispatched. Check your custom inbox for your verification token.
               </p>
-              <p className="text-xs text-slate-400 mt-2 font-mono">Target profile: {email}</p>
+              <p className="text-[10px] text-white/40 mt-1.5 font-mono break-all">Routing Profile: {email}</p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 tracking-wide">Enter OTP Token</label>
+              <label className="block text-xs font-bold uppercase tracking-wider text-white/60 mb-1.5 text-center">Enter Verification Code</label>
               <input 
                 type="text" 
                 maxLength={10}
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                className="w-full text-center text-xl font-mono tracking-widest rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-white focus:outline-none focus:border-indigo-500" 
+                className="w-full text-center text-2xl font-mono tracking-[0.4em] rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300" 
                 placeholder="••••••"
                 required
               />
@@ -198,17 +209,17 @@ export default function LoginPage() {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full rounded-md bg-emerald-600 py-2 font-semibold hover:bg-emerald-500 transition-colors disabled:opacity-50"
+              className="w-full rounded-xl bg-emerald-600 text-white font-bold py-3 text-sm hover:bg-emerald-500 active:scale-[0.98] transition transform shadow-lg shadow-emerald-500/10 disabled:opacity-50"
             >
-              {loading ? "Verifying Token..." : "Verify Code & Authorize"}
+              {loading ? "Validating Session..." : "Verify Code & Authorize"}
             </button>
 
             <button 
               type="button"
               onClick={() => setShowOtpScreen(false)}
-              className="w-full text-center text-xs text-slate-500 hover:text-slate-400 font-medium transition"
+              className="w-full text-center text-xs text-white/40 hover:text-white/60 font-medium transition pt-2 block"
             >
-              ← Back to Sign In Screen
+              ← Return to Credential Sign In
             </button>
           </form>
         )}
