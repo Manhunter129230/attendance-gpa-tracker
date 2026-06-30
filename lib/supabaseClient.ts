@@ -9,5 +9,4 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-// Named export architecture to enforce strict type alignment across components
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

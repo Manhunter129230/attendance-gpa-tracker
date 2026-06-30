@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { supabase } from "../supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
+import { Subject, TimetableSlot } from "@/types";
 
-interface Subject { id: string; subject_name: string; }
-interface TimetableSlot { id: string; subject_id: string; day_of_week: number; slot_number: number; }
+type DropdownName = "subject" | "day" | "slot" | null;
 
 export default function AdminPanel() {
   const router = useRouter();
@@ -18,14 +19,19 @@ export default function AdminPanel() {
 
   const [newSubjectName, setNewSubjectName] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
-  const [selectedDay, setSelectedDay] = useState(1); 
-  const [selectedSlot, setSelectedSlot] = useState(1); 
+  const [selectedDay, setSelectedDay] = useState(1);
+  const [selectedSlot, setSelectedSlot] = useState(1);
 
-  // Single-focus active dropdown tracker string parameter ('subject' | 'day' | 'slot' | null)
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [activeDropdown, setActiveDropdown] = useState<DropdownName>(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
 
-  const ADMIN_EMAIL = "raeedanees@gmail.com"; 
+  const subjectTriggerRef = useRef<HTMLButtonElement>(null);
+  const dayTriggerRef = useRef<HTMLButtonElement>(null);
+  const slotTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const ADMIN_EMAIL = "raeedanees@gmail.com";
   const daysOfWeekNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const SLOT_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   useEffect(() => { setMounted(true); verifyAdminAuth(); }, []);
 
@@ -35,14 +41,18 @@ export default function AdminPanel() {
       setIsAdmin(true);
       await fetchMasterData();
     } else {
-      router.push("/dashboard");
+      router.push("/home");
     }
     setLoading(false);
   };
 
   const fetchMasterData = async () => {
-    const { data: subData } = await supabase.from("subjects").select("id, subject_name");
-    const formattedSubjects = subData || [];
+    const { data: subData } = await supabase.from("subjects").select("id, subject_name, credits");
+    const formattedSubjects: Subject[] = (subData || []).map((s: any) => ({
+      id: s.id,
+      subject_name: s.subject_name,
+      credits: s.credits ?? 3,
+    }));
     setSubjects(formattedSubjects);
     if (formattedSubjects.length > 0 && !selectedSubjectId) setSelectedSubjectId(formattedSubjects[0].id);
 
@@ -79,13 +89,57 @@ export default function AdminPanel() {
     await fetchMasterData();
   };
 
-  const toggleDropdown = (dropdownName: string) => {
+  const getTriggerRef = (name: DropdownName) => {
+    if (name === "subject") return subjectTriggerRef;
+    if (name === "day") return dayTriggerRef;
+    if (name === "slot") return slotTriggerRef;
+    return null;
+  };
+
+  const toggleDropdown = (dropdownName: DropdownName) => {
     if (activeDropdown === dropdownName) {
       setActiveDropdown(null);
-    } else {
-      setActiveDropdown(dropdownName);
+      return;
     }
+    const ref = getTriggerRef(dropdownName);
+    if (ref?.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+    }
+    setActiveDropdown(dropdownName);
   };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!activeDropdown) return;
+      const triggerRef = getTriggerRef(activeDropdown);
+      const panelEl = document.getElementById("admin-dropdown-panel");
+      const clickedTrigger = triggerRef?.current && triggerRef.current.contains(event.target as Node);
+      const clickedPanel = panelEl && panelEl.contains(event.target as Node);
+      if (!clickedTrigger && !clickedPanel) {
+        setActiveDropdown(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [activeDropdown]);
+
+  useEffect(() => {
+    function reposition() {
+      if (!activeDropdown) return;
+      const ref = getTriggerRef(activeDropdown);
+      if (ref?.current) {
+        const rect = ref.current.getBoundingClientRect();
+        setDropdownPos({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+      }
+    }
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [activeDropdown]);
 
   if (!mounted || loading || !isAdmin) return null;
 
@@ -93,8 +147,7 @@ export default function AdminPanel() {
 
   return (
     <main className="py-12 max-w-[1000px] mx-auto space-y-8 min-h-screen selection:bg-rose-500/30">
-      
-      {/* Control Station Header */}
+
       <header className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-white/10 pb-6 text-center md:text-left animate-reveal-up">
         <div>
           <h1 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-[#f9d423] to-[#ff4e50] bg-clip-text text-transparent drop-shadow-lg tracking-tight">
@@ -105,16 +158,14 @@ export default function AdminPanel() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push("/dashboard")} className="cyber-btn-secondary bg-white/5 border border-white/10 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md">
+          <button onClick={() => router.push("/home")} className="cyber-btn-secondary bg-white/5 border border-white/10 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md">
             ← Core Workspace View
           </button>
         </div>
       </header>
 
-      {/* Inputs Configuration Matrix */}
       <section className="grid md:grid-cols-2 gap-6 animate-reveal-up [animation-delay:0.12s]">
-        
-        {/* Form Panel 1: Subject Entry */}
+
         <div className="glass-panel p-6 rounded-3xl space-y-4 shadow-2xl transition-all duration-300">
           <h3 className="font-bold text-xs uppercase tracking-widest text-white/40">01. Catalog Global Parameter</h3>
           <form onSubmit={handleCreateSubject} className="space-y-4">
@@ -129,123 +180,115 @@ export default function AdminPanel() {
           </form>
         </div>
 
-        {/* Form Panel 2: Interactive Custom Dropdown Timetable Mapper */}
         <div className="glass-panel p-6 rounded-3xl space-y-4 shadow-2xl transition-all duration-300">
           <h3 className="font-bold text-xs uppercase tracking-widest text-white/40">02. Initialize Layout Mappings</h3>
           <form onSubmit={handleMapSlot} className="space-y-4">
-          
-          {/* Custom Dropdown 1: Subject Selector */}
-          <div className="relative">
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Target Subject</label>
-            <button
-              type="button"
-              onClick={() => toggleDropdown('subject')}
-              className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99"
-            >
-              <span className="truncate max-w-[90%]">{activeSubjectName}</span>
-              <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'subject' ? 'rotate-180' : ''}`}>▼</span>
-            </button>
 
-            <div 
-              className={`dropdown-transition-container absolute w-full mt-2 max-h-[200px] overflow-y-auto rounded-xl border border-white/10 bg-slate-950/95 backdrop-blur-[30px] shadow-2xl z-50 p-1.5 space-y-0.5 ${
-                activeDropdown === 'subject' ? 'is-open block' : 'hidden'
-              }`}
-            >
-              {subjects.map(s => (
-                <button
-                  key={s.id} type="button"
-                  onClick={() => { setSelectedSubjectId(s.id); setActiveDropdown(null); }}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
-                    selectedSubjectId === s.id ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
-                  }`}
-                >
-                  {s.subject_name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Sub-grid containing Day and Slot Custom Drawers */}
-          <div className="grid grid-cols-2 gap-4">
-            
-            {/* Custom Dropdown 2: Weekday Selector */}
             <div className="relative">
-              <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Weekly Weekday</label>
+              <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Target Subject</label>
               <button
+                ref={subjectTriggerRef}
                 type="button"
-                onClick={() => toggleDropdown('day')}
+                onClick={(e) => { e.stopPropagation(); toggleDropdown('subject'); }}
                 className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99"
               >
-                <span>{daysOfWeekNames[selectedDay]}</span>
-                <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'day' ? 'rotate-180' : ''}`}>▼</span>
+                <span className="truncate max-w-[90%]">{activeSubjectName}</span>
+                <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'subject' ? 'rotate-180' : ''}`}>▼</span>
               </button>
-
-              <div 
-                className={`dropdown-transition-container absolute w-full mt-2 rounded-xl border border-white/10 bg-slate-950/90 backdrop-blur-[30px] shadow-2xl z-50 p-1.5 space-y-0.5 ${
-                  activeDropdown === 'day' ? 'is-open block' : 'hidden'
-                }`}
-              >
-                {daysOfWeekNames.map((name, idx) => (
-                  <button
-                    key={idx} type="button"
-                    onClick={() => { setSelectedDay(idx); setActiveDropdown(null); }}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      selectedDay === idx ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
-                    }`}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
             </div>
 
-            {/* Custom Dropdown 3: Slot Selector */}
-            <div className="relative">
-              <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Slot Number</label>
-              <button
-                type="button"
-                onClick={() => toggleDropdown('slot')}
-                className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99 justify-center gap-2"
-              >
-                <span>Slot 0{selectedSlot}</span>
-                <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'slot' ? 'rotate-180' : ''}`}>▼</span>
-              </button>
+            <div className="grid grid-cols-2 gap-4">
 
-              <div 
-                className={`dropdown-transition-container absolute w-full mt-2 max-h-[180px] overflow-y-auto rounded-xl border border-white/10 bg-slate-950/90 backdrop-blur-[30px] shadow-2xl z-50 p-1.5 space-y-0.5 ${
-                  activeDropdown === 'slot' ? 'is-open block' : 'hidden'
-                }`}
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
-                  <button
-                    key={n} type="button"
-                    onClick={() => { setSelectedSlot(n); setActiveDropdown(null); }}
-                    className={`w-full text-center px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      selectedSlot === n ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
-                    }`}
-                  >
-                    Slot 0{n}
-                  </button>
-                ))}
+              <div className="relative">
+                <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Weekly Weekday</label>
+                <button
+                  ref={dayTriggerRef}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleDropdown('day'); }}
+                  className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99"
+                >
+                  <span>{daysOfWeekNames[selectedDay]}</span>
+                  <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'day' ? 'rotate-180' : ''}`}>▼</span>
+                </button>
               </div>
+
+              <div className="relative">
+                <label className="block text-[10px] uppercase font-bold tracking-wider text-white/30 mb-1.5">Slot Number</label>
+                <button
+                  ref={slotTriggerRef}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleDropdown('slot'); }}
+                  className="w-full text-left px-4 py-3 rounded-xl border border-white/10 bg-black/40 text-sm font-medium text-white flex justify-between items-center transition-all hover:border-white/20 active:scale-99 justify-center gap-2"
+                >
+                  <span>Slot 0{selectedSlot}</span>
+                  <span className={`text-[10px] opacity-40 transition-transform duration-300 ${activeDropdown === 'slot' ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+              </div>
+
             </div>
 
-          </div>
-          
-          <button type="submit" disabled={subjects.length === 0} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-3 rounded-xl transition-all duration-300 shadow-lg shadow-indigo-950/40 transform active:scale-98 uppercase tracking-wider disabled:opacity-20">
-            Bind Schedule Link Vector
-          </button>
-        </form>
+            <button type="submit" disabled={subjects.length === 0} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold py-3 rounded-xl transition-all duration-300 shadow-lg shadow-indigo-950/40 transform active:scale-98 uppercase tracking-wider disabled:opacity-20">
+              Bind Schedule Link Vector
+            </button>
+          </form>
         </div>
       </section>
 
-      {/* Dynamic Grid Subject Manager */}
+      {mounted && activeDropdown && createPortal(
+        <div
+          id="admin-dropdown-panel"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, position: "fixed" }}
+          className="dropdown-transition-container is-open max-h-[340px] overflow-y-auto rounded-xl border border-white/10 bg-slate-950/95 backdrop-blur-[30px] shadow-2xl z-50 p-1.5 space-y-0.5"
+        >
+          <div className="dropdown-transition-inner space-y-0.5">
+            {activeDropdown === "subject" && subjects.map(s => (
+              <button
+                key={s.id} type="button"
+                onClick={() => { setSelectedSubjectId(s.id); setActiveDropdown(null); }}
+                className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+                  selectedSubjectId === s.id ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                }`}
+              >
+                {s.subject_name}
+              </button>
+            ))}
+
+            {activeDropdown === "day" && daysOfWeekNames.map((name, idx) => (
+              <button
+                key={idx} type="button"
+                onClick={() => { setSelectedDay(idx); setActiveDropdown(null); }}
+                className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  selectedDay === idx ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+
+            {activeDropdown === "slot" && SLOT_NUMBERS.map(n => (
+              <button
+                key={n} type="button"
+                onClick={() => { setSelectedSlot(n); setActiveDropdown(null); }}
+                className={`w-full text-center px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  selectedSlot === n ? 'bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                }`}
+              >
+                Slot 0{n}
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+
       <section className="glass-panel p-6 rounded-3xl shadow-2xl space-y-4 animate-reveal-up [animation-delay:0.2s]">
         <h2 className="text-xl font-black text-white tracking-wide">Stored Catalog Indices</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {subjects.map((s, idx) => (
-            <div 
-              key={s.id} 
+            <div
+              key={s.id}
               className="group flex justify-between items-center p-4 bg-black/20 border border-white/5 rounded-2xl hover:border-white/15 transition-all duration-300 animate-reveal-up"
               style={{ animationDelay: `${0.25 + idx * 0.05}s` }}
             >
@@ -258,7 +301,6 @@ export default function AdminPanel() {
         </div>
       </section>
 
-      {/* Master Interactive Relational Matrix Table */}
       <section className="glass-panel p-6 rounded-3xl shadow-2xl space-y-4 animate-reveal-up [animation-delay:0.35s]">
         <h2 className="text-xl font-black text-white tracking-wide">Live Active System Schedule Matrix</h2>
         <div className="overflow-x-auto rounded-xl border border-white/5">
@@ -275,8 +317,8 @@ export default function AdminPanel() {
               {timetable.map((slot, idx) => {
                 const matchedCourse = subjects.find(s => s.id === slot.subject_id);
                 return (
-                  <tr 
-                    key={slot.id} 
+                  <tr
+                    key={slot.id}
                     className="hover:bg-white/5 transition-all duration-300 group animate-reveal-up"
                     style={{ animationDelay: `${0.4 + idx * 0.03}s` }}
                   >

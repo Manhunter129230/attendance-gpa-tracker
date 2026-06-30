@@ -2,24 +2,24 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../supabaseClient"; 
+import { supabase } from "@/lib/supabaseClient";
 
 export default function LoginPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [token, setToken] = useState(""); 
+  const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showOtpScreen, setShowOtpScreen] = useState(false); 
+  const [showOtpScreen, setShowOtpScreen] = useState(false);
 
   const ADMIN_EMAIL = "raeedanees@gmail.com";
 
   const routeUserBasedOnRole = (userEmail: string | undefined) => {
     if (userEmail?.trim().toLowerCase() === ADMIN_EMAIL.trim().toLowerCase()) {
-      router.push("/admin"); 
+      router.push("/admin");
     } else {
-      router.push("/dashboard"); 
+      router.push("/home");
     }
   };
 
@@ -34,23 +34,21 @@ export default function LoginPage() {
     checkUser();
   }, [router]);
 
-  // Handle Standard Credential Logging In
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return alert("Please fill in all fields");
-    
+
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      
+
       if (error) {
-        // If the error states unconfirmed, send an OTP and route to verification
         if (error.message.toLowerCase().includes("email not confirmed")) {
           alert("Your email profile isn't verified yet! Requesting a 6-digit access code.");
-          
-          const { error: otpError } = await supabase.auth.signInWithOtp({ 
-            email, 
-            options: { shouldCreateUser: false } 
+
+          const { error: otpError } = await supabase.auth.signInWithOtp({
+            email,
+            options: { shouldCreateUser: false }
           });
 
           if (otpError) alert(`Rate Limit Guard: ${otpError.message}`);
@@ -68,21 +66,19 @@ export default function LoginPage() {
     }
   };
 
-  // Handle New Registration Single-Call Only
   const handleSignUp = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!email || !password) return alert("Please provide an email and password first");
 
     setLoading(true);
     try {
-      // One Single Request: signUp natively sends an OTP when custom SMTP is connected
       const { data, error } = await supabase.auth.signUp({ email, password });
 
       if (error) {
         alert(`Account Creation Rejected: ${error.message}`);
       } else {
         alert("Account initialized! Check your inbox for your verification code.");
-        setShowOtpScreen(true); 
+        setShowOtpScreen(true);
       }
     } catch (err) {
       console.error(err);
@@ -91,7 +87,6 @@ export default function LoginPage() {
     }
   };
 
-  // Verify Code Verification Form
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token.trim()) return alert("Please input the verification code.");
@@ -101,7 +96,7 @@ export default function LoginPage() {
       const { data, error } = await supabase.auth.verifyOtp({
         email: email,
         token: token.trim(),
-        type: "signup" // Reverted back to signup verification format to support standard single-flow signUp tracking
+        type: "signup"
       });
 
       if (error) {
@@ -119,13 +114,10 @@ export default function LoginPage() {
 
   if (!mounted) return null;
 
-  // Replace your page's return statement with this optimized markup:
   return (
     <div className="flex min-h-[80vh] items-center justify-center p-4">
-      {/* Main Glass Panel Card */}
       <div className="glass-panel w-full max-w-md space-y-6 rounded-[25px] p-8 md:p-10 transition-all duration-500 hover:border-[#f9d423]/40 hover:shadow-[0_8px_32px_rgba(0,0,0,0.4),0_0_40px_rgba(249,212,35,0.1)]">
-        
-        {/* Brand Header */}
+
         <div>
           <h2 className="text-2xl md:text-3xl font-black text-center bg-gradient-to-r from-[#f9d423] to-[#ff4e50] bg-clip-text text-transparent drop-shadow-sm tracking-tight">
             Attendance Vault
@@ -139,11 +131,11 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-white/60 mb-1.5">Email Address</label>
-              <input 
-                type="email" 
+              <input
+                type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300 text-sm" 
+                className="w-full rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300 text-sm"
                 placeholder="student@college.edu"
                 required
               />
@@ -151,18 +143,18 @@ export default function LoginPage() {
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-white/60 mb-1.5">Password</label>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)} 
-                className="w-full rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300 text-sm" 
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300 text-sm"
                 placeholder="••••••••"
                 required
               />
             </div>
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
               className="w-full rounded-xl bg-gradient-to-r from-[#f9d423] to-[#ff4e50] text-black font-bold py-3 text-sm hover:opacity-90 active:scale-[0.98] transition transform shadow-lg shadow-rose-500/10 disabled:opacity-50"
             >
@@ -175,8 +167,8 @@ export default function LoginPage() {
               <div className="flex-grow border-t border-white/5"></div>
             </div>
 
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={handleSignUp}
               disabled={loading}
               className="w-full rounded-xl bg-white/5 border border-white/10 py-3 text-sm font-bold text-white hover:bg-white/10 hover:border-white/20 active:scale-[0.98] transition transform disabled:opacity-50"
@@ -195,26 +187,26 @@ export default function LoginPage() {
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-white/60 mb-1.5 text-center">Enter Verification Code</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 maxLength={10}
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                className="w-full text-center text-2xl font-mono tracking-[0.4em] rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300" 
+                className="w-full text-center text-2xl font-mono tracking-[0.4em] rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-[#f9d423]/50 focus:bg-black/60 transition duration-300"
                 placeholder="••••••"
                 required
               />
             </div>
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
               className="w-full rounded-xl bg-emerald-600 text-white font-bold py-3 text-sm hover:bg-emerald-500 active:scale-[0.98] transition transform shadow-lg shadow-emerald-500/10 disabled:opacity-50"
             >
               {loading ? "Validating Session..." : "Verify Code & Authorize"}
             </button>
 
-            <button 
+            <button
               type="button"
               onClick={() => setShowOtpScreen(false)}
               className="w-full text-center text-xs text-white/40 hover:text-white/60 font-medium transition pt-2 block"
