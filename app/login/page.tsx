@@ -115,7 +115,7 @@ export default function LoginPage() {
   if (!mounted) return null;
 
   return (
-    <div className="flex min-h-[80vh] items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4">
       <div className="glass-panel w-full max-w-md space-y-6 rounded-[25px] p-8 md:p-10 transition-all duration-500 hover:border-[#f9d423]/40 hover:shadow-[0_8px_32px_rgba(0,0,0,0.4),0_0_40px_rgba(249,212,35,0.1)]">
 
         <div>
